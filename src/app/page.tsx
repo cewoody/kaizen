@@ -1,12 +1,13 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import FamilyMemberCard from '@/components/FamilyMemberCard'
 import RulesDropdown from '@/components/RulesDropdown'
 import CumulativeChart from '@/components/CumulativeChart'
 import WeeklyHoursChart from '@/components/WeeklyHoursChart'
 import AddFamilyMemberModal from '@/components/AddFamilyMemberModal'
+import { createClient } from '@/lib/supabase/client'
 import { Activity } from '@/types/database'
 
 interface UserWithActivities {
@@ -27,11 +28,7 @@ export default function Home() {
   const [showAddMemberModal, setShowAddMemberModal] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
 
-  useEffect(() => {
-    fetchUsers()
-  }, [])
-
-  const fetchUsers = async () => {
+  const fetchUsers = useCallback(async () => {
     try {
       const response = await fetch('/api/users')
       if (response.ok) {
@@ -43,7 +40,34 @@ export default function Home() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
+
+  useEffect(() => {
+    fetchUsers()
+
+    // Set up real-time subscription for activities
+    const supabase = createClient()
+    const channel = supabase
+      .channel('activities-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'activities',
+        },
+        () => {
+          // Refetch users when any activity changes
+          fetchUsers()
+        }
+      )
+      .subscribe()
+
+    // Cleanup subscription on unmount
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [fetchUsers])
 
   if (loading) {
     return (
