@@ -17,18 +17,19 @@ export function calculateScores(
   activities: Activity[],
   handicap: number,
   weeklyTargetHours: number,  // User's target hours
+  selectedYear: number = new Date().getFullYear(),  // Year to filter by
   poptartCount: number = 0,   // Total poptarts (to be tracked later)
   wineGlasses: number = 0     // Total wine glasses (to be tracked later)
 ): { weeklyScores: WeeklyScore[]; totalScore: number; poptartPenalty: number; winePenalty: number } {
-  // Filter to 2025 only
-  const activities2025 = activities.filter(
-    (a) => parseISO(a.start_date).getFullYear() === 2025
+  // Filter to selected year only
+  const activitiesForYear = activities.filter(
+    (a) => parseISO(a.start_date).getFullYear() === selectedYear
   )
 
   // Group by week
   const weeklyActivities: Record<string, Activity[]> = {}
 
-  activities2025.forEach((activity) => {
+  activitiesForYear.forEach((activity) => {
     const date = parseISO(activity.start_date)
     const weekStart = startOfWeek(date, { weekStartsOn: 1 })
     const weekKey = format(weekStart, 'yyyy-MM-dd')

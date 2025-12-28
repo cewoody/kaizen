@@ -1,14 +1,17 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 import FamilyMemberCard from '@/components/FamilyMemberCard'
 import RulesDropdown from '@/components/RulesDropdown'
 import CumulativeChart from '@/components/CumulativeChart'
 import WeeklyHoursChart from '@/components/WeeklyHoursChart'
+import WeeklyProgressCard from '@/components/WeeklyProgressCard'
 import AddFamilyMemberModal from '@/components/AddFamilyMemberModal'
+import PenaltyModal from '@/components/PenaltyModal'
 import { createClient } from '@/lib/supabase/client'
 import { Activity } from '@/types/database'
+import { calculateScores } from '@/lib/scoring'
 
 interface UserWithActivities {
   id: string
@@ -22,11 +25,50 @@ interface UserWithActivities {
   activities: Activity[]
 }
 
+// Calculate handicaps dynamically based on weekly target hours
+// Person with lowest target hours gets 1.0, others are adjusted proportionally
+function calculateHandicaps(users: UserWithActivities[]): Record<string, number> {
+  if (users.length === 0) return {}
+
+  const minTargetHours = Math.min(...users.map(u => u.weekly_target_hours))
+
+  return users.reduce((acc, user) => {
+    // Handicap = minTargetHours / userTargetHours
+    // e.g., if min is 5hrs and user has 7hrs, handicap = 5/7 ≈ 0.714
+    acc[user.id] = minTargetHours / user.weekly_target_hours
+    return acc
+  }, {} as Record<string, number>)
+}
+
+// Generate available years from 2025 to current year
+const START_YEAR = 2025
+const CURRENT_YEAR = new Date().getFullYear()
+const AVAILABLE_YEARS = Array.from(
+  { length: CURRENT_YEAR - START_YEAR + 1 },
+  (_, i) => CURRENT_YEAR - i
+)
+
 export default function Home() {
   const [users, setUsers] = useState<UserWithActivities[]>([])
   const [loading, setLoading] = useState(true)
   const [showAddMemberModal, setShowAddMemberModal] = useState(false)
+  const [showPenaltyModal, setShowPenaltyModal] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR)
+
+  // Calculate handicaps dynamically based on all users' weekly target hours
+  const handicaps = useMemo(() => calculateHandicaps(users), [users])
+
+  // Sort users by total points (highest first)
+  const sortedUsers = useMemo(() => {
+    return [...users].sort((a, b) => {
+      const handicapA = handicaps[a.id] || 1
+      const handicapB = handicaps[b.id] || 1
+      const scoreA = calculateScores(a.activities, handicapA, a.weekly_target_hours, selectedYear).totalScore
+      const scoreB = calculateScores(b.activities, handicapB, b.weekly_target_hours, selectedYear).totalScore
+      return scoreB - scoreA // Descending order
+    })
+  }, [users, handicaps, selectedYear])
 
   const fetchUsers = useCallback(async () => {
     try {
@@ -145,7 +187,37 @@ export default function Home() {
               Family Fitness Competition
             </h1>
           </div>
-          <RulesDropdown />
+          <div className="flex items-center gap-3">
+            {/* Penalty button */}
+            <button
+              onClick={() => setShowPenaltyModal(true)}
+              className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+              title="Log Penalty"
+            >
+              <svg viewBox="0 0 200 200" className="w-10 h-10" fill="none">
+                <g transform="translate(75, 100)">
+                  <rect x="-35" y="-50" width="60" height="80" rx="8" ry="8" fill="#d4a574" stroke="#b8956c" strokeWidth="2"/>
+                  <rect x="-30" y="-45" width="50" height="70" rx="5" ry="5" fill="none" stroke="#c49a6c" strokeWidth="1.5" strokeDasharray="5 3"/>
+                  <circle cx="-15" cy="-30" r="4" fill="#c49a6c"/>
+                  <circle cx="5" cy="-30" r="4" fill="#c49a6c"/>
+                  <circle cx="-5" cy="-15" r="4" fill="#c49a6c"/>
+                  <circle cx="-20" cy="-10" r="4" fill="#c49a6c"/>
+                  <circle cx="10" cy="-10" r="4" fill="#c49a6c"/>
+                </g>
+                <g transform="translate(115, 105)">
+                  <path d="M -28 -40 Q -32 0 0 15 Q 32 0 28 -40" fill="none" stroke="#9ca3af" strokeWidth="3"/>
+                  <path d="M -26 -30 Q -30 0 0 12 Q 30 0 26 -30 Z" fill="#7c1d4d"/>
+                  <ellipse cx="0" cy="-30" rx="26" ry="8" fill="#9d174d"/>
+                  <ellipse cx="0" cy="-40" rx="28" ry="9" fill="none" stroke="#9ca3af" strokeWidth="3"/>
+                  <line x1="0" y1="15" x2="0" y2="45" stroke="#9ca3af" strokeWidth="4" strokeLinecap="round"/>
+                  <ellipse cx="0" cy="48" rx="20" ry="6" fill="none" stroke="#9ca3af" strokeWidth="3"/>
+                </g>
+                <circle cx="100" cy="100" r="85" fill="none" stroke="#dc2626" strokeWidth="8"/>
+                <line x1="40" y1="160" x2="160" y2="40" stroke="#dc2626" strokeWidth="8" strokeLinecap="round"/>
+              </svg>
+            </button>
+            <RulesDropdown />
+          </div>
         </div>
       </header>
 
@@ -162,23 +234,57 @@ export default function Home() {
           </div>
         ) : (
           <div className="space-y-8">
-            {/* Family member cards */}
+            {/* Welcome message */}
+            <div>
+              <h2 className="text-2xl font-semibold text-gray-800">Welcome back, Catherine.</h2>
+            </div>
+
+            {/* Weekly progress for logged-in user (Catherine) */}
+            {users.find(u => u.name === 'Catherine W') && (
+              <WeeklyProgressCard
+                activities={users.find(u => u.name === 'Catherine W')!.activities}
+                weeklyTargetHours={users.find(u => u.name === 'Catherine W')!.weekly_target_hours}
+                userName="Catherine"
+              />
+            )}
+
+            {/* Year filter */}
+            <div className="flex justify-start">
+              <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+                {AVAILABLE_YEARS.map((year) => (
+                  <button
+                    key={year}
+                    onClick={() => setSelectedYear(year)}
+                    className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                      selectedYear === year
+                        ? 'bg-white text-blue-600 shadow-sm'
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    {year}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Weekly Stats - sorted by points */}
             <section>
               <h2 className="text-xl font-semibold text-gray-800 mb-4">
-                Family Members
+                Weekly Stats
               </h2>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                {users.map((user) => (
+                {sortedUsers.map((user) => (
                   <FamilyMemberCard
                     key={user.id}
                     name={user.name}
                     activities={user.activities}
-                    handicap={user.handicap}
+                    handicap={handicaps[user.id] || 1}
                     weeklyTargetHours={user.weekly_target_hours}
                     userId={user.id}
                     athleteId={user.strava_athlete_id}
                     hasCredentials={!!user.strava_client_id && !!user.strava_refresh_token}
                     onSync={fetchUsers}
+                    selectedYear={selectedYear}
                   />
                 ))}
               </div>
@@ -186,16 +292,14 @@ export default function Home() {
 
             {/* Weekly Hours Charts - Side by Side */}
             <section>
-              <h2 className="text-xl font-semibold text-gray-800 mb-4">
-                Weekly Training Hours
-              </h2>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                {users.map((user) => (
+                {sortedUsers.map((user) => (
                   <div key={user.id} className="rounded-lg bg-white p-6 shadow">
                     <WeeklyHoursChart
                       activities={user.activities}
                       userName={user.name}
                       weeklyTargetHours={user.weekly_target_hours}
+                      selectedYear={selectedYear}
                     />
                   </div>
                 ))}
@@ -205,12 +309,13 @@ export default function Home() {
             {/* Cumulative chart */}
             <section className="rounded-lg bg-white p-6 shadow">
               <CumulativeChart
-                users={users.map((u) => ({
+                users={sortedUsers.map((u) => ({
                   name: u.name,
                   activities: u.activities,
-                  handicap: u.handicap,
+                  handicap: handicaps[u.id] || 1,
                   weeklyTargetHours: u.weekly_target_hours,
                 }))}
+                selectedYear={selectedYear}
               />
             </section>
           </div>
@@ -223,6 +328,16 @@ export default function Home() {
         onSuccess={() => {
           fetchUsers()
         }}
+      />
+
+      <PenaltyModal
+        isOpen={showPenaltyModal}
+        onClose={() => setShowPenaltyModal(false)}
+        onSuccess={() => {
+          fetchUsers()
+        }}
+        users={users.map(u => ({ id: u.id, name: u.name }))}
+        currentUserId={users.find(u => u.name === 'Catherine W')?.id || ''}
       />
     </div>
   )

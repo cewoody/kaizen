@@ -23,6 +23,7 @@ interface WeeklyHoursChartProps {
   activities: Activity[]
   userName: string
   weeklyTargetHours?: number
+  selectedYear: number
 }
 
 // Chinese zodiac mappings
@@ -31,7 +32,7 @@ const ZODIAC_DATA: Record<string, { emoji: string; element: string; animal: stri
   'Catherine': { emoji: '🐀', element: 'Fire', animal: 'Rat', year: 1996, elementColor: 'bg-red-100 text-red-700' },
 }
 
-export default function WeeklyHoursChart({ activities, userName, weeklyTargetHours = 7 }: WeeklyHoursChartProps) {
+export default function WeeklyHoursChart({ activities, userName, weeklyTargetHours = 7, selectedYear }: WeeklyHoursChartProps) {
   const zodiac = ZODIAC_DATA[userName]
   const REDUCED_RATE_ACTIVITIES = ['golf', 'alpineski', 'backcountryski']
 
@@ -49,27 +50,33 @@ export default function WeeklyHoursChart({ activities, userName, weeklyTargetHou
     const weeklyRaces: Record<string, { dates: Set<string> }> = {}
     const weeklyActivities: Record<string, WeekActivity[]> = {}
 
-    const activities2025 = activities.filter((activity) =>
-      parseISO(activity.start_date_local).getFullYear() === 2025
+    const activitiesForYear = activities.filter((activity) =>
+      parseISO(activity.start_date_local).getFullYear() === selectedYear
     )
 
     // Find the date range (first activity to now) using LOCAL time
-    if (activities2025.length === 0) {
+    if (activitiesForYear.length === 0) {
       return { labels: [], rawData: [], adjustedData: [], extraData: [], racePoints: [], activitiesByWeek: [] }
     }
 
-    const sortedByDate = [...activities2025].sort((a, b) =>
+    const sortedByDate = [...activitiesForYear].sort((a, b) =>
       parseISO(a.start_date_local).getTime() - parseISO(b.start_date_local).getTime()
     )
     const firstActivityDate = parseISO(sortedByDate[0].start_date_local)
     const firstWeekStart = startOfWeek(firstActivityDate, { weekStartsOn: 1 })
     const now = new Date()
-    const currentWeekStart = startOfWeek(now, { weekStartsOn: 1 })
+    const currentYear = now.getFullYear()
 
-    // Generate all weeks from first activity to now
+    // For current year, use current week. For past years, use end of that year
+    const endDate = selectedYear < currentYear
+      ? new Date(selectedYear, 11, 31) // Dec 31 of selected year
+      : now
+    const lastWeekStart = startOfWeek(endDate, { weekStartsOn: 1 })
+
+    // Generate all weeks from first activity to end date
     const allWeeks: string[] = []
     let weekCursor = firstWeekStart
-    while (weekCursor <= currentWeekStart) {
+    while (weekCursor <= lastWeekStart) {
       allWeeks.push(format(weekCursor, 'yyyy-MM-dd'))
       weekCursor = new Date(weekCursor.getTime() + 7 * 24 * 60 * 60 * 1000)
     }
@@ -82,7 +89,7 @@ export default function WeeklyHoursChart({ activities, userName, weeklyTargetHou
       weeklyActivities[weekKey] = []
     })
 
-    activities2025
+    activitiesForYear
       .filter((activity) => activity.workout_type === 'training' || !activity.workout_type)
       .forEach((activity) => {
         // Use LOCAL time for week calculation
@@ -111,7 +118,7 @@ export default function WeeklyHoursChart({ activities, userName, weeklyTargetHou
       })
 
     // Track race dates separately using LOCAL time
-    activities2025
+    activitiesForYear
       .filter((activity) => activity.workout_type === 'race')
       .forEach((activity) => {
         const localDate = parseISO(activity.start_date_local)
@@ -136,7 +143,7 @@ export default function WeeklyHoursChart({ activities, userName, weeklyTargetHou
     const activitiesByWeek = allWeeks.map((week) => weeklyActivities[week] || [])
 
     return { labels, rawData, adjustedData, extraData, racePoints, activitiesByWeek }
-  }, [activities])
+  }, [activities, selectedYear])
 
   // Calculate y-axis max: 10% buffer above tallest bar OR 10% above bonus line, whichever is higher
   // Round up to nearest 5
@@ -347,11 +354,11 @@ export default function WeeklyHoursChart({ activities, userName, weeklyTargetHou
     },
   }
 
-  const activities2025 = activities.filter(
-    (activity) => parseISO(activity.start_date).getFullYear() === 2025
+  const activitiesFiltered = activities.filter(
+    (activity) => parseISO(activity.start_date).getFullYear() === selectedYear
   )
   // Group races by local date to detect triathlons (run + bike on same day)
-  const raceActivities = activities2025.filter((activity) => activity.workout_type === 'race')
+  const raceActivities = activitiesFiltered.filter((activity) => activity.workout_type === 'race')
   const racesByDate: Record<string, typeof raceActivities> = {}
 
   raceActivities.forEach((race) => {
@@ -436,7 +443,7 @@ export default function WeeklyHoursChart({ activities, userName, weeklyTargetHou
         </div>
         <div className="rounded-lg bg-purple-50 p-2 text-center">
           <p className="text-xs text-gray-600">Workouts</p>
-          <p className="text-lg font-bold text-purple-600">{activities2025.length}</p>
+          <p className="text-lg font-bold text-purple-600">{activitiesFiltered.length}</p>
         </div>
         <div className="rounded-lg bg-orange-50 p-2 text-center">
           <p className="text-xs text-gray-600">Weeks Met Goal</p>

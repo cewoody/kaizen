@@ -29,6 +29,7 @@ interface FamilyMemberCardProps {
   athleteId?: number | null
   hasCredentials?: boolean
   onSync?: () => void
+  selectedYear: number
 }
 
 // Chinese zodiac mappings
@@ -45,7 +46,8 @@ export default function FamilyMemberCard({
   userId,
   athleteId,
   hasCredentials,
-  onSync
+  onSync,
+  selectedYear
 }: FamilyMemberCardProps) {
   const zodiac = ZODIAC_DATA[name]
   const [syncing, setSyncing] = useState(false)
@@ -80,14 +82,14 @@ export default function FamilyMemberCard({
     }
   }
   const { totalScore, weeklyScores, poptartPenalty, winePenalty } = useMemo(
-    () => calculateScores(activities, handicap, weeklyTargetHours),
-    [activities, handicap, weeklyTargetHours]
+    () => calculateScores(activities, handicap, weeklyTargetHours, selectedYear),
+    [activities, handicap, weeklyTargetHours, selectedYear]
   )
 
-  // Calculate totals for 2025 with point breakdown
+  // Calculate totals for selected year with point breakdown
   const stats = useMemo(() => {
-    const activities2025 = activities.filter(
-      (a) => parseISO(a.start_date).getFullYear() === 2025
+    const activitiesForYear = activities.filter(
+      (a) => parseISO(a.start_date).getFullYear() === selectedYear
     )
 
     const REDUCED_RATE_ACTIVITIES = ['golf', 'alpineski', 'backcountryski']
@@ -95,7 +97,7 @@ export default function FamilyMemberCard({
     // Calculate training hours by sport (excluding races) - matching scoring.ts logic
     const hoursBySport: Record<string, { hours: number; isReduced: boolean }> = {}
 
-    activities2025.forEach((a) => {
+    activitiesForYear.forEach((a) => {
       if (a.workout_type === 'training' || !a.workout_type) {
         const hours = a.moving_time_seconds / 3600
         const sport = a.type
@@ -146,22 +148,30 @@ export default function FamilyMemberCard({
       raceCount,
       golfTournamentCount,
     }
-  }, [activities, handicap, weeklyScores])
+  }, [activities, handicap, weeklyScores, selectedYear])
 
   // Get current week's cumulative data for scatter plot (adjusted and unadjusted)
+  // Only shown for the current year
+  const currentYear = new Date().getFullYear()
+  const isCurrentYear = selectedYear === currentYear
+
   const weeklyScatterData = useMemo(() => {
+    if (!isCurrentYear) {
+      return { adjustedPoints: [], rawPoints: [], currentAdjusted: 0, currentRaw: 0 }
+    }
+
     const now = new Date()
     const weekStart = startOfWeek(now, { weekStartsOn: 1 })
     const currentDayIndex = getDay(now) === 0 ? 6 : getDay(now) - 1 // 0=Mon, 6=Sun
 
     const REDUCED_RATE_ACTIVITIES = ['golf', 'alpineski', 'backcountryski']
 
-    const activities2025 = activities.filter(
-      (a) => parseISO(a.start_date).getFullYear() === 2025
+    const activitiesForYear = activities.filter(
+      (a) => parseISO(a.start_date).getFullYear() === selectedYear
     )
 
     // Filter to current week (only training activities)
-    const thisWeekActivities = activities2025.filter((a) => {
+    const thisWeekActivities = activitiesForYear.filter((a) => {
       if (a.workout_type === 'race' || a.workout_type === 'golf_tournament') return false
       const activityWeekStart = startOfWeek(parseISO(a.start_date), { weekStartsOn: 1 })
       return format(activityWeekStart, 'yyyy-MM-dd') === format(weekStart, 'yyyy-MM-dd')
@@ -197,7 +207,7 @@ export default function FamilyMemberCard({
     }
 
     return { adjustedPoints, rawPoints, currentAdjusted: cumulativeAdjusted, currentRaw: cumulativeRaw }
-  }, [activities])
+  }, [activities, selectedYear, isCurrentYear])
 
   const chartData = {
     datasets: [

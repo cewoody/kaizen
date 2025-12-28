@@ -27,6 +27,7 @@ interface UserData {
 
 interface CumulativeChartProps {
   users: UserData[]
+  selectedYear: number
 }
 
 const COLORS = [
@@ -37,18 +38,22 @@ const COLORS = [
   { bg: 'rgba(249, 115, 22, 0.7)', border: 'rgb(249, 115, 22)' },   // orange
 ]
 
-export default function CumulativeChart({ users }: CumulativeChartProps) {
+export default function CumulativeChart({ users, selectedYear }: CumulativeChartProps) {
   const chartData = useMemo(() => {
-    // Get all weeks from start of 2025 to now
-    const yearStart = startOfYear(new Date(2025, 0, 1))
+    // Get all weeks from start of selected year to end of year (or now if current year)
+    const yearStart = startOfYear(new Date(selectedYear, 0, 1))
     const now = new Date()
+    const currentYear = now.getFullYear()
+    const endDate = selectedYear < currentYear
+      ? new Date(selectedYear, 11, 31) // Dec 31 of selected year
+      : now
     const weeks = eachWeekOfInterval(
-      { start: yearStart, end: now },
+      { start: yearStart, end: endDate },
       { weekStartsOn: 1 }
     )
 
     const datasets = users.map((user, userIndex) => {
-      const { weeklyScores } = calculateScores(user.activities, user.handicap, user.weeklyTargetHours)
+      const { weeklyScores } = calculateScores(user.activities, user.handicap, user.weeklyTargetHours, selectedYear)
 
       // Build cumulative points per week
       let cumulative = 0
@@ -83,7 +88,7 @@ export default function CumulativeChart({ users }: CumulativeChartProps) {
       datasets,
       weekLabels: weeks.map((w) => format(w, 'MMM d')),
     }
-  }, [users])
+  }, [users, selectedYear])
 
   const options = {
     responsive: true,
